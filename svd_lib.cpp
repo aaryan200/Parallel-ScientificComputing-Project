@@ -6,6 +6,20 @@
 
 using namespace std;
 
+/*
+- To install Eigen, you can use the following command:
+  sudo apt-get install libeigen3-dev
+- Update c_cpp_properties.json to include the Eigen library path:
+  "includePath": [
+    "${workspaceFolder}/**",
+    "/usr/include/eigen3"
+  ]
+- To compile the code, use the following command:       
+    g++ -I /usr/include/eigen3 svd_lib.cpp -o svd_lib -lm
+- To run the code, use the following command:   
+    ./svd_lib
+*/
+
 // Helper function to write an Eigen matrix (MatrixXd) to a binary file using FILE*.
 // File format: [int rows][int cols][data in row-major order (double)]
 void writeEigenMatrixToBinaryFile(const Eigen::MatrixXd &mat, const string &filename) {
@@ -52,7 +66,6 @@ bool isInputMatrixFile(const string &fileName) {
 }
 
 int main() {
-    // Open current directory using C-style directory handling.
     DIR *dir = opendir(".");
     if (!dir) {
         perror("opendir");
@@ -65,7 +78,6 @@ int main() {
         if (!isInputMatrixFile(fileName))
             continue;
 
-        // Open the input file for reading using FILE*.
         FILE *f = fopen(fileName.c_str(), "rb");
         if (!f) {
             fprintf(stderr, "Error opening file %s for reading.\n", fileName.c_str());
