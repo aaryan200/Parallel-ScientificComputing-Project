@@ -778,7 +778,7 @@ int main(int argc, char **argv)
     int size = min(m, n);
 
     char filename[256];
-    sprintf(filename, "../inputs/input_matrix_%04d_%04d.bin", m, n);
+    sprintf(filename, "../data/input_matrix_%04d_%04d.bin", m, n);
 
     // Read input matrix
     ifstream file(filename, ios::binary);
