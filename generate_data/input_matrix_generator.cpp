@@ -7,7 +7,7 @@ using namespace std;
 
 // Generate a random integer in the range [2, 1000]
 int getRandomDimension() {
-    return rand() % 999 + 2;
+    return rand() % 2000 + 2;
 }
 
 // Generate a matrix with given rows and columns filled with random double values
@@ -22,7 +22,7 @@ vector<vector<double>> generateMatrix(int rows, int cols) {
 // Write the matrix to a binary file with naming format
 void writeMatrixToBinaryFile(const vector<vector<double>>& matrix, int rows, int cols) {
     char filename[64];
-    sprintf(filename, "input_matrix_%04d_%04d.bin", rows, cols);
+    sprintf(filename, "../inputs/input_matrix_%04d_%04d.bin", rows, cols);
 
     ofstream outFile(filename, ios::binary);
     if (!outFile) {

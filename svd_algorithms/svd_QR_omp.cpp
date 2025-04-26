@@ -7,11 +7,19 @@
 #include <algorithm>
 #include <numeric>
 #include <omp.h>
+#include <chrono>
 
-#define TOLERANCE 1e-10
-#define MAX_ITER 7000
+#define TOLERANCE 1e-7
+#define MAX_ITER 100000000
 
 using namespace std;
+using namespace std::chrono;
+typedef long long ll;
+
+ll getCurTime() {
+    return duration_cast<microseconds>(chrono::high_resolution_clock::now().time_since_epoch()).count();
+}
+
 
 vector<vector<double>> create_matrix(int rows, int cols)
 {
@@ -321,42 +329,182 @@ void SVD(int M, int N, vector<vector<double>> &D,
     transpose(N, N, V, V_T);
 }
 
-int main()
+bool testOrthogonality(vector<vector<double>> &A)
 {
-    ifstream fin("input_mat.txt");
-    if (!fin)
+    int n = A.size();
+    auto I = create_matrix(n, n);
+    set_identity(n, I);
+    auto AT = create_matrix(n, n);
+    transpose(n, n, A, AT);
+    auto result = create_matrix(n, n);
+    multiply(n, n, AT, n, n, A, result);
+    for (int i = 0; i < n; i++)
+        for (int j = 0; j < n; j++)
+            if (fabs(result[i][j] - I[i][j]) > 1e-5)
+                return false;
+    return true;
+}
+
+bool testSVD(vector<vector<double>> &A, vector<vector<double>> &U, vector<vector<double>> &Sigma, vector<vector<double>> &V) {
+    int m = A.size(), n = A[0].size();
+    int min_dim = min(m, n);
+
+    // Check orthogonality of U and V
+    if (!testOrthogonality(U)) {
+        cout << "U is not orthogonal" << endl;
+        return false;
+    }
+
+    if (!testOrthogonality(V)) {
+        cout << "V is not orthogonal" << endl;
+        return false;
+    }
+
+    // Create proper S matrix with dimensions m×n
+    auto S = create_matrix(m, n);
+    #pragma omp parallel for
+    for (int i = 0; i < min_dim; ++i)
+        S[i][i] = Sigma[i][i];
+
+    // Compute U * S
+    auto US = create_matrix(m, n);
+    multiply(m, m, U, m, n, S, US);
+
+    // Compute (U * S) * V^T
+    auto VT = create_matrix(n, n);
+    transpose(n, n, V, VT);
+    auto reconstructed = create_matrix(m, n);
+    multiply(m, n, US, n, n, VT, reconstructed);
+
+    // Check if A and reconstructed are close
+    for (int i = 0; i < m; ++i) {
+        for (int j = 0; j < n; ++j) {
+            if (fabs(A[i][j] - reconstructed[i][j]) > 1e-5) {
+                cout << "A and USV^T are not close at (" << i << ", " << j << ")" << endl;
+                cout << "A[" << i << "][" << j << "] = " << A[i][j] 
+                     << ", USV^T[" << i << "][" << j << "] = " << reconstructed[i][j] 
+                     << endl;
+                return false;
+            }
+        }
+    }
+    return true;
+}
+
+int main(int argc, char **argv)
+{
+    if (argc != 4)
     {
-        cerr << "Failed to open input file\n";
+        cerr << "Usage: " << argv[0] << " <numRows> <numCols> <numThreads>" << endl;
         return 1;
     }
-    int p = 3;
+    
+    int M = stoi(argv[1]), N = stoi(argv[2]);
+    int size = min(M, N);
+    
+    int p = stoi(argv[3]);
     omp_set_num_threads(p);
 
-    int M, N;
-    fin >> M >> N;
+    char filename[256];
+    sprintf(filename, "../inputs/input_matrix_%04d_%04d.bin", M, N);
+
+    // Read input matrix
+    ifstream file(filename, ios::binary);
+    if (!file)
+    {
+        cerr << "Error opening file: " << filename << endl;
+        return 1;
+    }
+
+    // Read header
+    int file_rows, file_cols;
+    file.read(reinterpret_cast<char *>(&file_rows), sizeof(int));
+    file.read(reinterpret_cast<char *>(&file_cols), sizeof(int));
+
+    // Verify dimensions match command line arguments
+    if (file_rows != M || file_cols != N)
+    {
+        cerr << "Error: File dimensions " << file_rows << "x" << file_cols
+             << " don't match expected " << M << "x" << N << endl;
+        return 1;
+    }
+
     auto D = create_matrix(M, N);
-    for (int i = 0; i < M; i++)
-        for (int j = 0; j < N; j++)
-            fin >> D[i][j];
-    fin.close();
+    for (int i = 0; i < M; ++i) {
+        file.read(reinterpret_cast<char *>(D[i].data()), N * sizeof(double));
+    }
+    file.close();
+
+    auto orig_D = create_matrix(M, N);
+
+    copy_matrix(M, N, orig_D, D);
 
     vector<vector<double>> U, Sigma, V_T;
+
+    auto start = getCurTime();
+
     SVD(M, N, D, U, Sigma, V_T);
+
+    auto end = getCurTime();
 
     auto V = create_matrix(N, N);
     transpose(N, N, V_T, V);
 
-    print_matrix(M, M, U, "U");
-    print_matrix(M, N, Sigma, "Sigma");
-    print_matrix(N, N, V_T, "V^T");
-    print_matrix(N, N, V, "V");
+    if (!testSVD(orig_D, U, Sigma, V)) {
+        cout << "FAILED" << endl;
+        return 1;
+    } else {
+        cout << "PASSED" << endl;
+    }
 
-    auto US = create_matrix(M, N);
-    multiply(M, M, U, M, N, Sigma, US);
+    cout << "Time taken for SVD: " << end - start << " microseconds" << endl;
 
-    auto reconstructed = create_matrix(M, N);
-    multiply(M, N, US, N, N, V_T, reconstructed);
-    print_matrix(M, N, reconstructed, "Reconstructed D");
+    // print_matrix(M, M, U, "U");
+    // print_matrix(M, N, Sigma, "Sigma");
+    // print_matrix(N, N, V_T, "V^T");
+    // print_matrix(N, N, V, "V");
+
+    sprintf(filename, "../prog_output/U_%04d_%04d.bin", M, N);
+    ofstream uFile(filename, ios::binary);
+    // First write the dimensions
+    uFile.write(reinterpret_cast<char *>(&M), sizeof(int));
+    uFile.write(reinterpret_cast<char *>(&M), sizeof(int));
+
+    // Write U matrix
+    for (int i = 0; i < M; ++i)
+    {
+        uFile.write(reinterpret_cast<char *>(U[i].data()), M * sizeof(double));
+    }
+    uFile.close();
+
+    printf("Saved U matrix to %s\n", filename);
+
+    sprintf(filename, "../prog_output/S_%04d_%04d.bin", M, N);
+    ofstream sFile(filename, ios::binary);
+    // First write the dimensions
+    sFile.write(reinterpret_cast<char *>(&size), sizeof(int));
+    // Write singular values
+    for (int i = 0; i < size; ++i)
+    {
+        sFile.write(reinterpret_cast<char *>(&Sigma[i][i]), sizeof(double));
+    }
+    sFile.close();
+
+    printf("Saved S matrix to %s\n", filename);
+
+    sprintf(filename, "../prog_output/V_%04d_%04d.bin", M, N);
+    ofstream vFile(filename, ios::binary);
+    // First write the dimensions
+    vFile.write(reinterpret_cast<char *>(&N), sizeof(int));
+    vFile.write(reinterpret_cast<char *>(&N), sizeof(int));
+    // Write V matrix
+    for (int i = 0; i < N; ++i)
+    {
+        vFile.write(reinterpret_cast<char *>(V[i].data()), N * sizeof(double));
+    }
+    vFile.close();
+
+    printf("Saved V matrix to %s\n", filename);
 
     return 0;
 }

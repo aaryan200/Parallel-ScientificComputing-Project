@@ -2,6 +2,7 @@
 #include <fstream>
 #include <vector>
 #include <cmath>
+#include <cassert>
 #include <algorithm>
 #include <string>
 #include <map>
@@ -10,12 +11,16 @@
 #include <omp.h>
 
 using namespace std;
+using namespace std::chrono;
 
 typedef long long ll;
 
-mt19937 rng(chrono::steady_clock::now().time_since_epoch().count());
-ll random(ll a, ll b) {
-    return uniform_int_distribution<ll>(a, b)(rng);
+double tol = 1e-10;
+int maxIter = 100000000;
+double EPS = 1e-10;
+
+ll getCurTime() {
+    return duration_cast<microseconds>(chrono::high_resolution_clock::now().time_since_epoch()).count();
 }
 
 void mat_mul(vector<vector<double>>& A, vector<vector<double>> B) {
@@ -265,10 +270,6 @@ void implicitZeroShiftQR(vector<double>& s, vector<double>& e, vector<vector<dou
     s[i_end] = h * cs;
 }
 
-double EPS = 1e-10;
-
-int MAX_ITER = 1000;
-
 // Convergence check
 bool is_converged(const vector<double>& e) {
     bool converged = true;
@@ -285,13 +286,8 @@ bool is_converged(const vector<double>& e) {
         }
     }
 
-    cout << "Not converged: " << val << endl;
-
     return converged;
 }
-
-double tol = 1e-10;
-int maxIter = 100000000;
 
 double maxEl(const vector<double>& v) {
     double maxVal = 0;
@@ -359,8 +355,6 @@ vector<vector<vector<double>>> SVD_GolubKahan(vector<vector<double>> &M) {
 
         implicitZeroShiftQR(s, e, Ut, Vt, i_start, i_end, m, n);
 
-        cout << "Iteration: " << ind << " Max error: " << maxEl(e) << endl;
-
         if (ind++ == maxIter) break;
     }
 
@@ -427,22 +421,107 @@ vector<vector<vector<double>>> svd(vector<vector<double>> &M) {
     return {U, {s}, V};
 }
 
+void set_identity(int size, vector<vector<double>> &I)
+{   
+    #pragma omp parallel for collapse(2)
+    for (int i = 0; i < size; i++)
+        for (int j = 0; j < size; j++)
+            I[i][j] = (i == j) ? 1.0 : 0.0;
+}
+
+void multiply(int m1, int n1, vector<vector<double>> &A,
+    int m2, int n2, vector<vector<double>> &B,
+    vector<vector<double>> &C)
+{
+    assert(n1 == m2);
+    #pragma omp parallel for collapse(2)
+    for (int i = 0; i < m1; i++)
+        for (int j = 0; j < n2; j++)
+        {
+        double sum = 0.0;
+        for (int k = 0; k < n1; k++)
+            sum += A[i][k] * B[k][j];
+        C[i][j] = sum;
+    }
+}
+
+bool testOrthogonality(vector<vector<double>> &A)
+{
+    int m = A.size(), n = A[0].size();
+
+    vector<vector<double>> I(n, vector<double>(n, 0));
+    set_identity(n, I);
+    vector<vector<double>> AT = transpose(A);
+    vector<vector<double>> result(n, vector<double>(n, 0));
+    multiply(n, m, AT, m, n, A, result);
+    for (int i = 0; i < n; i++)
+        for (int j = 0; j < n; j++)
+            if (fabs(result[i][j] - I[i][j]) > 1e-5)
+                return false;
+    return true;
+}
+
+bool testSVD(vector<vector<double>> &A, vector<vector<double>> &U, vector<double> &Sigma, vector<vector<double>> &V) {
+    int m = A.size(), n = A[0].size();
+    int min_dim = min(m, n);
+
+    // Check orthogonality of U and V
+    if (!testOrthogonality(U)) {
+        cout << "U is not orthogonal" << endl;
+        return false;
+    }
+
+    if (!testOrthogonality(V)) {
+        cout << "V is not orthogonal" << endl;
+        return false;
+    }
+
+    // Create proper S matrix with dimensions m×n
+    vector<vector<double>> S(min_dim, vector<double>(min_dim, 0));
+
+    #pragma omp parallel for
+    for (int i = 0; i < min_dim; ++i)
+        S[i][i] = Sigma[i];
+
+    // Compute U * S
+    vector<vector<double>> US(m, vector<double>(min_dim, 0));
+    multiply(m, min_dim, U, min_dim, min_dim, S, US);
+
+    // Compute (U * S) * V^T
+    vector<vector<double>> VT = transpose(V);
+    vector<vector<double>> reconstructed(m, vector<double>(n, 0));
+    multiply(m, min_dim, US, min_dim, n, VT, reconstructed);
+
+    // Check if A and reconstructed are close
+    for (int i = 0; i < m; ++i) {
+        for (int j = 0; j < n; ++j) {
+            if (fabs(A[i][j] - reconstructed[i][j]) > 1e-5) {
+                cout << "A and USV^T are not close at (" << i << ", " << j << ")" << endl;
+                return false;
+            }
+        }
+    }
+    return true;
+}
+
 int main(int argc, char **argv)
 {
-    if (argc != 3)
+    if (argc != 4)
     {
-        cerr << "Usage: " << argv[0] << " m n" << endl;
+        cerr << "Usage: " << argv[0] << " <numRows> <numCols> <numThreads>" << endl;
         return 1;
     }
 
-    int p = 4;
-    omp_set_num_threads(p);
-
+    
     int m = stoi(argv[1]), n = stoi(argv[2]);
     int size = min(m, n);
+    
+    int p = stoi(argv[3]);
+    omp_set_num_threads(p);
+
 
     char filename[256];
-    sprintf(filename, "../data/input_matrix_%04d_%04d.bin", m, n);
+    sprintf(filename, "../inputs/input_matrix_%04d_%04d.bin", m, n);
 
     // Read input matrix
     ifstream file(filename, ios::binary);
@@ -472,21 +551,47 @@ int main(int argc, char **argv)
     }
     file.close();
 
+    // Copy M to a new matrix
+    vector<vector<double>> orig_M(m, vector<double>(n));
+    for (int i = 0; i < m; ++i) {
+        for (int j = 0; j < n; ++j) {
+            orig_M[i][j] = M[i][j];
+        }
+    }
+
+    auto start = getCurTime();
+
     auto result = svd(M);
+
+    auto end = getCurTime();
+
     vector<vector<double>> U = result[0];
     vector<double> s = result[1][0];
     vector<vector<double>> V = result[2];
+
+    // Check correctness of SVD
+    if (testSVD(orig_M, U, s, V))
+    {
+        cout << "PASSED" << endl;
+    }
+    else
+    {
+        cout << "FAILED" << endl;
+        return 1;
+    }
+
+    cout << "Time taken for SVD: " << end - start << " microseconds" << endl;
 
     // Write results in U_{m}_{n}.bin, S_{m}_{n}.bin, V_{m}_{n}.bin
     sprintf(filename, "../prog_output/U_%04d_%04d_par.bin", m, n);
     ofstream uFile(filename, ios::binary);
     // First write the dimensions
     uFile.write(reinterpret_cast<char *>(&m), sizeof(int));
-    uFile.write(reinterpret_cast<char *>(&m), sizeof(int));
+    uFile.write(reinterpret_cast<char *>(&size), sizeof(int));
     // Write U matrix
     for (int i = 0; i < m; ++i)
     {
-        uFile.write(reinterpret_cast<char *>(U[i].data()), m * sizeof(double));
+        uFile.write(reinterpret_cast<char *>(U[i].data()), size * sizeof(double));
     }
     uFile.close();
 
@@ -509,11 +614,11 @@ int main(int argc, char **argv)
     ofstream vFile(filename, ios::binary);
     // First write the dimensions
     vFile.write(reinterpret_cast<char *>(&n), sizeof(int));
-    vFile.write(reinterpret_cast<char *>(&n), sizeof(int));
+    vFile.write(reinterpret_cast<char *>(&size), sizeof(int));
     // Write V matrix
     for (int i = 0; i < n; ++i)
     {
-        vFile.write(reinterpret_cast<char *>(V[i].data()), n * sizeof(double));
+        vFile.write(reinterpret_cast<char *>(V[i].data()), size * sizeof(double));
     }
     vFile.close();
     printf("Saved V matrix to %s\n", filename);

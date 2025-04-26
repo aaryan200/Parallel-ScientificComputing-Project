@@ -12,11 +12,6 @@ using namespace std;
 
 typedef long long ll;
 
-mt19937 rng(chrono::steady_clock::now().time_since_epoch().count());
-ll random(ll a, ll b) {
-    return uniform_int_distribution<ll>(a, b)(rng);
-}
-
 void mat_mul(vector<vector<double>>& A, vector<vector<double>> B) {
     int m = A.size(), n = A[0].size(), p = B[0].size();
     vector<vector<double>> C(m, vector<double>(p, 0));
