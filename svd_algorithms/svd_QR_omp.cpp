@@ -340,7 +340,7 @@ bool testOrthogonality(vector<vector<double>> &A)
     multiply(n, n, AT, n, n, A, result);
     for (int i = 0; i < n; i++)
         for (int j = 0; j < n; j++)
-            if (fabs(result[i][j] - I[i][j]) > 1e-5)
+            if (fabs(result[i][j] - I[i][j]) > 1e-6)
                 return false;
     return true;
 }
@@ -379,7 +379,7 @@ bool testSVD(vector<vector<double>> &A, vector<vector<double>> &U, vector<vector
     // Check if A and reconstructed are close
     for (int i = 0; i < m; ++i) {
         for (int j = 0; j < n; ++j) {
-            if (fabs(A[i][j] - reconstructed[i][j]) > 1e-5) {
+            if (fabs(A[i][j] - reconstructed[i][j]) > 1e-6) {
                 cout << "A and USV^T are not close at (" << i << ", " << j << ")" << endl;
                 cout << "A[" << i << "][" << j << "] = " << A[i][j] 
                      << ", USV^T[" << i << "][" << j << "] = " << reconstructed[i][j] 
@@ -450,6 +450,8 @@ int main(int argc, char **argv)
     auto V = create_matrix(N, N);
     transpose(N, N, V_T, V);
 
+    cout << "Time taken for SVD: " << end - start << " microseconds" << endl;
+
     if (!testSVD(orig_D, U, Sigma, V)) {
         cout << "FAILED" << endl;
         return 1;
@@ -457,7 +459,6 @@ int main(int argc, char **argv)
         cout << "PASSED" << endl;
     }
 
-    cout << "Time taken for SVD: " << end - start << " microseconds" << endl;
 
     // print_matrix(M, M, U, "U");
     // print_matrix(M, N, Sigma, "Sigma");
