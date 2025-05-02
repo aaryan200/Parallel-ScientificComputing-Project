@@ -456,7 +456,7 @@ bool testOrthogonality(vector<vector<double>> &A)
     multiply(n, m, AT, m, n, A, result);
     for (int i = 0; i < n; i++)
         for (int j = 0; j < n; j++)
-            if (fabs(result[i][j] - I[i][j]) > 1e-5)
+            if (fabs(result[i][j] - I[i][j]) > 1e-6)
                 return false;
     return true;
 }
@@ -495,7 +495,7 @@ bool testSVD(vector<vector<double>> &A, vector<vector<double>> &U, vector<double
     // Check if A and reconstructed are close
     for (int i = 0; i < m; ++i) {
         for (int j = 0; j < n; ++j) {
-            if (fabs(A[i][j] - reconstructed[i][j]) > 1e-5) {
+            if (fabs(A[i][j] - reconstructed[i][j]) > 1e-6) {
                 cout << "A and USV^T are not close at (" << i << ", " << j << ")" << endl;
                 return false;
             }
